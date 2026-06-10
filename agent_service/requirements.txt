@@ -1,0 +1,7 @@
+fastapi==0.115.12
+uvicorn==0.34.2
+sqlalchemy[asyncio]==2.0.41
+psycopg[binary]==3.2.9
+langgraph==0.6.7
+langchain-openai==0.3.33
+langchain-mcp-adapters==0.1.10
