@@ -1,26 +1,55 @@
-"""AgroAgent MCP Server: FastAPI + FastMCP (Streamable HTTP) + REST per il frontend."""
+"""AgroAgent MCP Server: FastAPI + FastMCP (Streamable HTTP) + SSE + REST."""
+import asyncio
+import json
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field as PydField
+from sqlalchemy import select
 
 import config
 import queries
 import tools  # noqa: F401 — l'import registra i tool MCP
 from auth import MCPBearerAuthMiddleware
 from db.session import SessionLocal
+from field_engine import advance_field_and_publish
 from field_factory import create_field
 from mcp_app import mcp
+from models import Field
+from sse import broker
+
+logger = logging.getLogger("mcp_server")
 
 mcp_asgi = mcp.streamable_http_app()
+
+SSE_HEARTBEAT_SECONDS = 15
+
+
+async def background_tick() -> None:
+    """Ogni N minuti reali avanza la simulazione di 1 ora per ogni campo."""
+    while True:
+        await asyncio.sleep(config.FIELD_TICK_INTERVAL_MINUTES * 60)
+        try:
+            async with SessionLocal() as session:
+                field_ids = (await session.execute(select(Field.id))).scalars().all()
+            for fid in field_ids:
+                await advance_field_and_publish(str(fid), 1)
+        except Exception:
+            logger.exception("Tick di background fallito")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with mcp.session_manager.run():
-        yield
+        tick_task = asyncio.create_task(background_tick())
+        try:
+            yield
+        finally:
+            tick_task.cancel()
 
 
 app = FastAPI(title="AgroAgent MCP Server", lifespan=lifespan)
@@ -55,10 +84,6 @@ async def health() -> dict:
 @app.get("/api/fields")
 async def list_fields() -> list[dict]:
     async with SessionLocal() as session:
-        from sqlalchemy import select
-
-        from models import Field
-
         result = await session.execute(select(Field).order_by(Field.created_at))
         return [queries.serialize_field(f) for f in result.scalars()]
 
@@ -101,6 +126,37 @@ async def get_events(field_id: str, limit: int = 20) -> list[dict]:
         except ValueError as err:
             raise _handle(err)
         return await queries.recent_events(session, field, limit)
+
+
+@app.get("/events/{field_id}")
+async def sse_events(field_id: str) -> StreamingResponse:
+    """Stream SSE degli aggiornamenti campo. Heartbeat ogni 15s; alla
+    riconnessione il client rifà il fetch completo via GET /api/fields/{id}."""
+    async with SessionLocal() as session:
+        try:
+            field = await queries.get_field_or_error(session, field_id)
+        except ValueError as err:
+            raise _handle(err)
+    fid = str(field.id)
+
+    async def stream():
+        queue = broker.subscribe(fid)
+        try:
+            yield ": connected\n\n"
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
+                    yield f"event: {item['event']}\ndata: {json.dumps(item['data'])}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            broker.unsubscribe(fid, queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # Immagini del dataset: StaticFiles gestisce già la protezione path-traversal
