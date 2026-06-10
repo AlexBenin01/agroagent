@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mcp_server:
+    build: ./mcp_server
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
+      FRONTEND_ORIGIN: http://localhost:3000
+      FIELD_TICK_INTERVAL_MINUTES: ${FIELD_TICK_INTERVAL_MINUTES}
+      DEFAULT_FIELD_ROWS: ${DEFAULT_FIELD_ROWS}
+      DEFAULT_FIELD_COLS: ${DEFAULT_FIELD_COLS}
+      IMAGE_BASE_PATH: ${IMAGE_BASE_PATH}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+
+  agent_service:
+    build: ./agent_service
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      MCP_SERVER_URL: http://mcp_server:8001/mcp
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+      FRONTEND_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mcp_server:
+        condition: service_started
+
+  frontend:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+
+volumes:
+  pgdata:

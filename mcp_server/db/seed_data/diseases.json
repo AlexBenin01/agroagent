@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Peronospora della vite",
+    "pathogen_type": "oomycete",
+    "crop_type": "vite",
+    "symptoms_visible": ["macchie oleose foglia", "peluria bianca pagina inferiore"],
+    "favorable_temp_min": 11,
+    "favorable_temp_max": 30,
+    "favorable_humidity_min": 75,
+    "spread_speed": "fast",
+    "severity_score": 5,
+    "treatment_duration_h": 72,
+    "recommended_action": "Trattamento con fungicida rameico o sistemico anti-peronospora",
+    "image_folder": "peronospora"
+  },
+  {
+    "name": "Oidio della vite",
+    "pathogen_type": "fungus",
+    "crop_type": "vite",
+    "symptoms_visible": ["polverulenza bianca pagina superiore", "deformazione foglie giovani"],
+    "favorable_temp_min": 20,
+    "favorable_temp_max": 35,
+    "favorable_humidity_min": 40,
+    "spread_speed": "medium",
+    "severity_score": 4,
+    "treatment_duration_h": 48,
+    "recommended_action": "Trattamento con zolfo bagnabile o IBE",
+    "image_folder": "oidio"
+  },
+  {
+    "name": "Botrite (Muffa grigia)",
+    "pathogen_type": "fungus",
+    "crop_type": "vite",
+    "symptoms_visible": ["muffa grigia grappolo", "marcescenza bacche"],
+    "favorable_temp_min": 15,
+    "favorable_temp_max": 25,
+    "favorable_humidity_min": 85,
+    "spread_speed": "fast",
+    "severity_score": 4,
+    "treatment_duration_h": 96,
+    "recommended_action": "Diradamento grappoli, trattamento con botricicidi specifici",
+    "image_folder": "botrite"
+  },
+  {
+    "name": "Flavescenza Dorata",
+    "pathogen_type": "phytoplasma",
+    "crop_type": "vite",
+    "symptoms_visible": ["ingiallimento foglie", "arrotolamento lembo", "mancata lignificazione tralci"],
+    "favorable_temp_min": 20,
+    "favorable_temp_max": 32,
+    "favorable_humidity_min": 50,
+    "spread_speed": "slow",
+    "severity_score": 5,
+    "treatment_duration_h": 240,
+    "recommended_action": "Lotta al vettore Scaphoideus titanus, estirpo piante colpite",
+    "image_folder": "flavescenza"
+  },
+  {
+    "name": "Escoriosi",
+    "pathogen_type": "fungus",
+    "crop_type": "vite",
+    "symptoms_visible": ["macchie nere tralci", "disseccamento gemme", "necrosi corteccia"],
+    "favorable_temp_min": 5,
+    "favorable_temp_max": 20,
+    "favorable_humidity_min": 70,
+    "spread_speed": "slow",
+    "severity_score": 3,
+    "treatment_duration_h": 120,
+    "recommended_action": "Potatura epuratrice, trattamenti in pre-germogliamento",
+    "image_folder": "escoriosi"
+  }
+]
