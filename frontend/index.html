@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgroAgent — Vigneto simulato</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">🌿 <strong>AgroAgent</strong> <span class="subtitle">— agronomo AI su vigneto simulato</span></div>
+    <div class="header-status">
+      <span id="sim-time" title="Orologio simulato del campo">⏱ —</span>
+      <span id="weather-now" title="Meteo simulato corrente">☁️ —</span>
+      <span id="sse-status" class="sse-dot off" title="Connessione real-time">●</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="left-col">
+      <div class="canvas-wrap">
+        <canvas id="field-canvas" width="600" height="600"></canvas>
+        <div id="cell-tooltip" class="tooltip hidden"></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#4CAF50"></i> sana</span>
+        <span><i style="background:#FFC107"></i> a rischio</span>
+        <span><i style="background:#F44336"></i> malata</span>
+        <span><i style="background:#2196F3"></i> in cura</span>
+        <span><i style="background:#8BC34A"></i> trattata</span>
+        <span>📍 checkpoint</span>
+        <span><i class="focus-swatch"></i> focus agente</span>
+      </div>
+      <div class="panel" id="timeline-panel">
+        <h2>📜 Timeline eventi</h2>
+        <ul id="timeline-list"></ul>
+      </div>
+    </section>
+
+    <section class="right-col">
+      <div class="panel" id="sensors-panel">
+        <h2>📡 Sensori <span id="sensors-cell-label"></span></h2>
+        <div id="sensors-body" class="muted">Clicca una cella sulla mappa…</div>
+      </div>
+      <div class="panel chat-panel">
+        <h2>💬 Chat con l'agente</h2>
+        <div id="chat-messages"></div>
+        <div id="chat-typing" class="hidden">L'agente sta lavorando<span class="dots">…</span></div>
+        <form id="chat-form">
+          <input id="chat-input" type="text" autocomplete="off"
+                 placeholder="Es. ispeziona la zona più a rischio…" maxlength="2000">
+          <button type="submit" id="chat-send">Invia</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
