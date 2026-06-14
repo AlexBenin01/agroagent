@@ -75,11 +75,14 @@ Any OpenAI-compatible endpoint with **tool calling** works. In `.env`:
 | Setup | `OPENAI_BASE_URL` | `LLM_MODEL` |
 |---|---|---|
 | vLLM on Colab (reference) | `https://<tunnel>.trycloudflare.com/v1` | `Qwen/Qwen3-32B` |
+| llama.cpp on Colab (Qwen3.6, 40 GB A100) | `https://<tunnel>.trycloudflare.com/v1` | `qwen3.6-35b-a3b` |
 | Ollama on the host | `http://host.docker.internal:11434/v1` | e.g. `qwen3:8b` |
 | Cloud provider | provider `/v1` URL | provider model id |
 
 For the Colab/vLLM reference setup (including `--enable-auto-tool-choice
 --tool-call-parser hermes`) see the [technical plan](agroagent_piano_tecnico.md#llm--qwen3-servito-da-vllm-su-google-colab).
+For serving Qwen3.6-35B-A3B (GGUF) on a 40 GB A100 via llama.cpp, open the
+ready-to-run notebook [colab/agroagent_llm.ipynb](colab/agroagent_llm.ipynb).
 After changing `.env`, restart just the agent: `docker compose up -d agent_service`.
 
 ### Try the demo flow
