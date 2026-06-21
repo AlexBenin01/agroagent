@@ -8,8 +8,14 @@ chat panel — moves across the field, reads simulated sensors, takes simulated 
 photos, creates checkpoints, launches asynchronous treatments and explains in natural
 language what is happening and why.
 
-> **Status:** MVP complete — all 5 sprints implemented and smoke-tested.
-> The full technical plan lives in [`agroagent_piano_tecnico.md`](agroagent_piano_tecnico.md).
+## ✨ Highlights
+
+- 🧠 **Agentic core** — a LangGraph **ReAct** agent acts on the world only through **MCP tools** (13 of them), never touching the database directly.
+- 👁️ **Multimodal diagnosis** — a farmer uploads a real leaf photo; the model *sees* it, recognizes the vine disease and updates the field.
+- 💾 **Persistent memory** — LangGraph Postgres **checkpointer + store** (optional pgvector semantic search) with automatic context summarization to tame the context window.
+- 🕒 **Real-time simulation** — disease spreads by weather & contagion; **1 simulated day = 5 real minutes**, with ×1–×4 speed and Normal/Hard/Apocalypse modes.
+- 📊 **LLM observability** — token-by-token streaming with a live panel: time-to-first-token, time-to-first-tool, tokens/s.
+- 🔌 **Model-agnostic** — any OpenAI-compatible endpoint (Qwen3 on vLLM, Ollama, or a cloud provider).
 
 ---
 
@@ -17,7 +23,7 @@ language what is happening and why.
 
 The field state lives as a **single source of truth on a remote MCP server**
 (Model Context Protocol, Streamable HTTP transport). The agent never touches the
-database directly: it observes and acts on the field exclusively through 10 MCP tools.
+database directly: it observes and acts on the field exclusively through 13 MCP tools.
 The browser receives real-time field updates over SSE.
 
 ```
@@ -82,11 +88,13 @@ Any OpenAI-compatible endpoint with **tool calling** works. In `.env`:
 | Ollama on the host | `http://host.docker.internal:11434/v1` | e.g. `qwen3:8b` |
 | Cloud provider | provider `/v1` URL | provider model id |
 
-For the Colab/vLLM reference setup (including `--enable-auto-tool-choice
---tool-call-parser hermes`) see the [technical plan](agroagent_piano_tecnico.md#llm--qwen3-servito-da-vllm-su-google-colab).
+vLLM needs tool calling enabled (`--enable-auto-tool-choice --tool-call-parser hermes`),
+and a **multimodal** model (e.g. a Qwen-VL variant) for the photo-diagnosis flow.
 For serving Qwen3.6-35B-A3B (GGUF) on a 40 GB A100 via llama.cpp, open the
 ready-to-run notebook [colab/agroagent_llm.ipynb](colab/agroagent_llm.ipynb).
 After changing `.env`, restart just the agent: `docker compose up -d agent_service`.
+On Qwen3 the agent disables the hidden `<think>` reasoning (`LLM_ENABLE_THINKING=false`)
+for much lower latency.
 
 ### Try the demo flow
 
@@ -100,11 +108,12 @@ In the chat panel:
    starts the treatment
 5. *«Avanza il tempo di 72 ore»* — the clock jumps, the task completes, the cell turns light green
 
-The agent reply now streams **token by token**; each turn logs `ttft_ms`
-(time-to-first-token) and `ttftool_ms` (time-to-first-tool) in the
-`agent_service` logs. The header **×1/×2/×3/×4 / ⏸** control sets the real-time
-speed at which the simulated clock auto-advances — at **×1 one simulated day
-lasts 5 real minutes** (`SIM_DAY_REAL_MINUTES` in `.env`); ×k multiplies it.
+The agent reply streams **token by token**, and a live **observability panel**
+shows per-turn `ttft_ms` (time-to-first-token), `ttftool_ms` (time-to-first-tool)
+and tokens/s — also logged in the `agent_service` logs. The header
+**×1/×2/×3/×4 / ⏸** control sets the real-time speed at which the simulated clock
+auto-advances — at **×1 one simulated day lasts 5 real minutes**
+(`SIM_DAY_REAL_MINUTES` in `.env`); ×k multiplies it.
 
 ### Memory / knowledge base
 
@@ -192,14 +201,15 @@ multimodal LLM endpoint that supports the OpenAI `image_url` format.
 
 `get_field_state` · `get_cell_detail` · `capture_field_photo` · `get_weather_summary` ·
 `move_focus_area` · `create_checkpoint` · `start_treatment` · `advance_simulation_time` ·
-`query_disease_catalog` · `get_care_protocol` · `query_inventory` · `order_product`
+`query_disease_catalog` · `get_care_protocol` · `query_inventory` · `order_product` ·
+`apply_diagnosis`
 
 ## Stack
 
-**Backend:** Python, FastAPI, MCP Python SDK (FastMCP), LangGraph, SQLAlchemy + Alembic, PostgreSQL
+**Backend:** Python, FastAPI, MCP Python SDK (FastMCP), LangGraph (+ langmem), SQLAlchemy + Alembic, PostgreSQL + pgvector
 **Frontend:** Vanilla JS (ES modules), Canvas 2D, Server-Sent Events
 **Infra:** Docker Compose (postgres, mcp_server, agent_service, frontend)
-**LLM:** any OpenAI-compatible endpoint — reference: Qwen3 on vLLM (Colab A100)
+**LLM:** any OpenAI-compatible endpoint — reference: multimodal Qwen3 on vLLM (Colab A100)
 
 ## Roadmap
 
@@ -216,8 +226,10 @@ multimodal LLM endpoint that supports the OpenAI `image_url` format.
   Store), langmem summarization + compact tool outputs (fixes context overflow),
   optional pgvector semantic memory, real-time clock (1 sim day = 5 real min),
   quieter MCP logs
-- [x] Sprint 8 — Photo diagnosis: farmer uploads a real photo (durable host
-  storage), multimodal agent recognizes the vine disease and applies it to the
-  cell (`apply_diagnosis`); disease reference image shown on cell click
-- [ ] Next: end-of-season scoring & budget economy, LLM observability panel,
-  OAuth 2.1 on `/mcp` if ever exposed, in-field fine-tuned classifier as fallback
+- [x] Sprint 8 — Photo diagnosis & observability: farmer uploads a real photo
+  (durable host storage), multimodal agent recognizes the vine disease and applies
+  it to the cell (`apply_diagnosis`), disease reference image on cell click; live
+  LLM observability panel (TTFToken/TTFtool/tokens-per-sec); Qwen3 thinking disabled
+  for ~70× lower latency
+- [ ] Next: end-of-season scoring & budget economy, OAuth 2.1 on `/mcp` if ever
+  exposed, in-field fine-tuned classifier as a fallback to the multimodal model
