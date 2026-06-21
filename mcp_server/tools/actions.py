@@ -5,7 +5,13 @@ from typing import Literal
 import queries
 from db.session import SessionLocal
 from mcp_app import mcp
-from models import AgentTask, Checkpoint, DiseaseCatalog, FieldEvent
+from models import (
+    AgentTask,
+    Checkpoint,
+    DiseaseCatalog,
+    FieldEvent,
+    FieldInventory,
+)
 from sqlalchemy import select
 from sse import broker
 
@@ -87,13 +93,17 @@ async def start_treatment(
     x: int,
     y: int,
     treatment_type: Literal["chemical", "biological", "irrigation", "pruning"],
+    product_id: str | None = None,
 ) -> dict:
     """Avvia un trattamento sulla cella (x,y). La durata è in ORE SIMULATE:
     il task si chiude quando l'orologio del campo raggiunge ends_at_sim
     (es. avanzando il tempo con advance_simulation_time).
-    - chemical/biological/pruning: richiede una malattia attiva sulla cella;
-      durata = treatment_duration_h della malattia.
-    - irrigation: sempre possibile, durata 2 ore simulate."""
+    - chemical/biological: richiede una malattia attiva E un prodotto adatto
+      a magazzino (passa product_id; consuma 1 unità). Se manca lo stock,
+      usa query_inventory e order_product. Un prodotto più efficace riduce la
+      durata del trattamento.
+    - pruning: intervento manuale, richiede una malattia attiva, nessun prodotto.
+    - irrigation: sempre possibile, durata 2 ore simulate, nessun prodotto."""
     async with SessionLocal() as session:
         field = await queries.get_field_or_error(session, field_id)
         cell = await queries.get_cell_or_error(session, field, x, y)
@@ -122,9 +132,45 @@ async def start_treatment(
             disease = await session.get(DiseaseCatalog, cell.active_disease_id)
             duration_h = disease.treatment_duration_h
             task_type = "treatment"
+            product_name = None
+
+            if treatment_type in ("chemical", "biological"):
+                if product_id is None:
+                    raise ValueError(
+                        "Un trattamento chimico/biologico richiede un prodotto: "
+                        "usa query_inventory per scegliere il product_id adatto a "
+                        f"{disease.name} ({disease.pathogen_type}) e passalo a start_treatment. "
+                        "Se non hai stock, ordina con order_product."
+                    )
+                product = await queries.get_product_or_error(session, product_id)
+                if disease.pathogen_type not in product.targets and "any" not in product.targets:
+                    raise ValueError(
+                        f"Il prodotto '{product.name}' non è indicato contro "
+                        f"{disease.name} ({disease.pathogen_type}). Scegline uno con il "
+                        "patogeno fra i target (vedi query_inventory)."
+                    )
+                stock = (
+                    await session.execute(
+                        select(FieldInventory).where(
+                            FieldInventory.field_id == field.id,
+                            FieldInventory.product_id == product.id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if stock is None or stock.quantity < 1:
+                    raise ValueError(
+                        f"Prodotto '{product.name}' esaurito in magazzino. "
+                        "Ordinalo con order_product e avanza il tempo fino alla consegna."
+                    )
+                stock.quantity -= 1
+                product_name = product.name
+                # prodotto più efficace = trattamento più rapido
+                duration_h = max(1, round(duration_h * max(0.4, 1.5 - product.efficacy)))
+
             description = (
                 f"Trattamento {treatment_type} contro {disease.name} "
-                f"avviato sulla cella ({x},{y}), durata {duration_h}h simulate"
+                + (f"con {product_name} " if product_name else "")
+                + f"avviato sulla cella ({x},{y}), durata {duration_h}h simulate"
             )
             cell.status = "under_treatment"
 
@@ -161,3 +207,67 @@ async def start_treatment(
     )
     broker.publish(field_id, "field_update", {"cells": [cell_snapshot], "sim_time": sim_time})
     return serialized
+
+
+@mcp.tool()
+async def apply_diagnosis(
+    field_id: str,
+    x: int,
+    y: int,
+    disease_id: str,
+    confidence: float | None = None,
+    note: str = "",
+) -> dict:
+    """Registra sulla cella (x,y) la diagnosi di una malattia riconosciuta da una
+    FOTO reale: imposta la malattia attiva (deve essere nel catalogo vite), porta
+    la cella in stato 'diseased' e abilita il trattamento. Da usare dopo aver
+    osservato i sintomi nell'immagine caricata dall'utente."""
+    import uuid as _uuid
+
+    try:
+        did = _uuid.UUID(disease_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"disease_id non valido: {disease_id!r}")
+
+    async with SessionLocal() as session:
+        field = await queries.get_field_or_error(session, field_id)
+        cell = await queries.get_cell_or_error(session, field, x, y)
+        disease = await session.get(DiseaseCatalog, did)
+        if disease is None:
+            raise ValueError(f"Malattia {disease_id} inesistente nel catalogo")
+
+        cell.active_disease_id = disease.id
+        cell.status = "diseased"
+        cell.disease_risk_score = max(cell.disease_risk_score, 0.9)
+        cell.last_inspected_at = field.simulation_time
+
+        conf_txt = f" (confidenza {confidence:.0%})" if confidence is not None else ""
+        description = f"Diagnosi da foto: {disease.name}{conf_txt} sulla cella ({x},{y})"
+        if note:
+            description += f" — {note}"
+        session.add(
+            FieldEvent(
+                field_id=field.id,
+                event_type="disease_detected",
+                cell_x=x,
+                cell_y=y,
+                description=description,
+                sim_time=field.simulation_time,
+            )
+        )
+        names = await queries.disease_names_map(session)
+        images = await queries.disease_image_map(session)
+        snapshot = queries.serialize_cell(cell, names, images)
+        sim_time = queries.iso(field.simulation_time)
+        protocol = queries.serialize_disease(disease)
+        await session.commit()
+
+    broker.publish(field_id, "field_update", {"cells": [snapshot], "sim_time": sim_time})
+    return {
+        "cell": snapshot,
+        "diagnosis": disease.name,
+        "confidence": confidence,
+        "recommended_action": protocol["recommended_action"],
+        "treatment_duration_h": protocol["treatment_duration_h"],
+        "hint": "Per curarla: verifica l'inventario (query_inventory), ordina se serve, poi start_treatment.",
+    }

@@ -13,6 +13,9 @@ venv/
 # Dataset images (downloaded locally, not versioned)
 data/images/
 
+# Foto reali caricate dal contadino (persistite su host, non versionate)
+uploads/
+
 # OS / editor
 .DS_Store
 Thumbs.db
@@ -21,3 +24,8 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Documenti di progettazione e media (tenuti in locale, fuori dal repo)
+agroagent_piano_tecnico.md
+frontend_check.png
+*.mp4

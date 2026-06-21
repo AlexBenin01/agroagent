@@ -1,9 +1,9 @@
-"""Genera immagini placeholder per data/images/ (healthy + 5 malattie).
+"""Genera immagini placeholder per data/images/ (healthy + malattie PlantVillage).
 
-Le immagini reali (PlantVillage / Mendeley, CC BY 4.0) non sono versionate:
+Le immagini reali (PlantVillage, classi `Grape___*`) non sono versionate:
 questo script crea placeholder leggeri così che `capture_field_photo` funzioni
 out-of-the-box. Per la demo definitiva, sostituire i file nelle stesse cartelle
-con un subset del dataset reale.
+con un subset del dataset reale (vedi README → sezione dataset immagini).
 
 Uso:  pip install pillow && python scripts/generate_placeholder_images.py
 """
@@ -16,11 +16,9 @@ ROOT = Path(__file__).resolve().parents[1] / "data" / "images"
 
 CATEGORIES = {
     "healthy": ((46, 125, 50), "Vite sana"),
-    "diseased/peronospora": ((85, 110, 40), "Peronospora"),
-    "diseased/oidio": ((150, 150, 120), "Oidio"),
-    "diseased/botrite": ((110, 100, 95), "Botrite"),
-    "diseased/flavescenza": ((190, 160, 60), "Flavescenza Dorata"),
-    "diseased/escoriosi": ((70, 60, 50), "Escoriosi"),
+    "diseased/black_rot": ((90, 70, 45), "Black Rot"),
+    "diseased/esca": ((150, 120, 55), "Esca"),
+    "diseased/leaf_blight": ((120, 110, 60), "Leaf Blight"),
 }
 
 IMAGES_PER_CATEGORY = 10

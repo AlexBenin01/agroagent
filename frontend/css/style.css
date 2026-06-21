@@ -153,8 +153,150 @@ main {
 .msg img { max-width: 230px; display: block; margin-top: 6px; border-radius: 6px; }
 .msg .cell-link { color: #ffab91; cursor: pointer; text-decoration: underline; }
 .msg .tools-used { display: block; margin-top: 6px; font-size: 0.7rem; color: var(--muted); }
+.msg .msg-metrics { display: block; margin-top: 4px; font-size: 0.68rem; color: #7c8aa0; font-style: italic; }
+.msg.streaming .msg-text::after {
+  content: "▋";
+  color: var(--green);
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
 
 #chat-typing { font-size: 0.8rem; color: var(--muted); padding: 6px 2px; }
+
+/* --- controlli velocità nell'header --- */
+.speed-controls { display: flex; gap: 2px; }
+.speed-controls button {
+  background: #0d110c;
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 0.74rem;
+  padding: 3px 7px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.speed-controls button.active {
+  background: var(--green);
+  color: #0d110c;
+  font-weight: 600;
+  border-color: var(--green);
+}
+.difficulty-badge { font-size: 0.82rem; color: var(--text); }
+
+/* --- schermata iniziale (scelta modalità) --- */
+.start-screen {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 11, 7, 0.96);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+.start-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 720px;
+  width: 100%;
+  text-align: center;
+}
+.start-card h1 { margin: 0 0 6px; }
+.start-card > p { color: var(--muted); margin-top: 0; }
+.mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
+.mode-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #0d110c;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 18px 14px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s, transform 0.1s;
+}
+.mode-btn:hover { border-color: var(--green); transform: translateY(-2px); }
+.mode-btn:disabled { opacity: 0.5; cursor: wait; }
+.mode-name { font-size: 1rem; font-weight: 600; }
+.mode-desc { font-size: 0.78rem; color: var(--muted); }
+.existing-fields h2 { font-size: 0.9rem; margin: 18px 0 8px; }
+.field-resume {
+  display: block;
+  width: 100%;
+  background: #0d110c;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.field-resume:hover { border-color: var(--green); }
+
+/* --- pannello metriche LLM --- */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 10px;
+  margin-bottom: 10px;
+}
+.metric-grid > div { display: flex; flex-direction: column; }
+.mlabel { font-size: 0.66rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.mval { font-size: 1.02rem; font-weight: 600; color: var(--text); }
+.metric-hist { display: flex; align-items: flex-end; gap: 8px; }
+.mbars { display: flex; align-items: flex-end; gap: 2px; height: 28px; flex: 1; }
+.mbar { flex: 1; min-width: 3px; background: var(--green); border-radius: 1px 1px 0 0; opacity: 0.85; }
+.metric-hist .muted { font-size: 0.66rem; white-space: nowrap; }
+.metric-avg { font-size: 0.7rem; margin-top: 8px; }
+
+/* --- inventario --- */
+.inventory-list { list-style: none; margin: 0 0 6px; padding: 0; font-size: 0.8rem; }
+.inventory-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.inv-name { flex: 1; min-width: 120px; }
+.inv-meta { color: var(--muted); font-size: 0.7rem; width: 100%; }
+.inv-qty { font-weight: 600; }
+.inv-qty.in-stock { color: var(--green); }
+.inv-qty.out-stock { color: var(--muted); }
+.inventory-list.pending .inv-qty { color: #90caf9; font-weight: 400; }
+#inventory-panel h3 { font-size: 0.82rem; margin: 8px 0 4px; }
+
+.sensor-photo + .photo-caption { font-size: 0.7rem; margin-top: 3px; }
+
+/* --- upload foto in chat --- */
+.photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  margin-top: 6px;
+  background: #0d110c;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+}
+.photo-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
+.photo-preview #photo-preview-name { flex: 1; font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#photo-remove {
+  background: transparent; border: none; color: var(--muted);
+  cursor: pointer; font-size: 0.9rem;
+}
+.photo-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 38px; background: #0d110c; border: 1px solid var(--panel-border);
+  border-radius: 6px; cursor: pointer; font-size: 1.05rem;
+}
+.photo-btn:hover { border-color: var(--green); }
+.msg-photo { max-width: 180px; display: block; margin-top: 6px; border-radius: 6px; }
 
 #chat-form { display: flex; gap: 8px; margin-top: 8px; }
 #chat-input {

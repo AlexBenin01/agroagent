@@ -17,7 +17,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import queries
 from db.session import SessionLocal
-from models import AgentTask, DiseaseCatalog, Field, FieldCell, FieldEvent, WeatherDaily
+from models import (
+    AgentTask,
+    DiseaseCatalog,
+    Field,
+    FieldCell,
+    FieldEvent,
+    FieldInventory,
+    ProductCatalog,
+    ProductOrder,
+    WeatherDaily,
+)
 from sse import broker
 from weather_gen import generate_weather_day
 
@@ -32,6 +42,36 @@ SPREAD_DECAY_PER_H = {"slow": 0.002, "medium": 0.004, "fast": 0.007}
 RECOVERY_PER_H = 0.003  # recupero celle 'treated'
 MOISTURE_PER_MM_RAIN = 0.015
 EVAPORATION_PER_H = 0.005
+
+# Profili di difficoltà: scalano diffusione, recupero, rischio di base, dimensione
+# del focolaio iniziale e tempi di consegna dei prodotti.
+DIFFICULTY_PROFILES = {
+    "normal": {
+        "spread_mult": 1.0,
+        "recovery_mult": 1.0,
+        "risk_base": 0.05,
+        "outbreak_cells": 2,
+        "delivery_mult": 1.0,
+    },
+    "hard": {
+        "spread_mult": 1.5,
+        "recovery_mult": 0.7,
+        "risk_base": 0.12,
+        "outbreak_cells": 4,
+        "delivery_mult": 1.5,
+    },
+    "apocalypse": {
+        "spread_mult": 2.5,
+        "recovery_mult": 0.4,
+        "risk_base": 0.20,
+        "outbreak_cells": 8,
+        "delivery_mult": 2.5,
+    },
+}
+
+
+def difficulty_profile(difficulty: str | None) -> dict:
+    return DIFFICULTY_PROFILES.get(difficulty or "normal", DIFFICULTY_PROFILES["normal"])
 
 
 def _neighbors(x: int, y: int, cols: int, rows: int) -> list[tuple[int, int]]:
@@ -118,8 +158,9 @@ def _disease_risk(
     humidity: float,
     avg_temp: float,
     diseased_neighbor: bool,
+    risk_base: float = 0.05,
 ) -> float:
-    risk = 0.05
+    risk = risk_base
     if cell.soil_moisture > 0.7:
         risk += 0.3
     if humidity > 80:
@@ -143,10 +184,12 @@ async def run_field_tick(session: AsyncSession, field_id: uuid.UUID, delta_hours
         raise ValueError(f"Campo {field_id} inesistente")
 
     rng = random.Random()
+    profile = difficulty_profile(field.difficulty)
     old_sim = field.simulation_time
     new_sim = old_sim + timedelta(hours=delta_hours)
     field.simulation_time = new_sim
     events: list[FieldEvent] = []
+    delivered_orders: list[ProductOrder] = []
 
     # 1. meteo
     await _advance_weather(
@@ -219,6 +262,46 @@ async def run_field_tick(session: AsyncSession, field_id: uuid.UUID, delta_hours
         )
         completed_tasks.append(task)
 
+    # 2b. consegne prodotti arrivate: aggiorna lo stock e notifica
+    arrived = (
+        await session.execute(
+            select(ProductOrder).where(
+                ProductOrder.field_id == field.id,
+                ProductOrder.status == "in_transit",
+                ProductOrder.arrives_at_sim <= new_sim,
+            )
+        )
+    ).scalars().all()
+    for order in arrived:
+        order.status = "delivered"
+        stock = (
+            await session.execute(
+                select(FieldInventory).where(
+                    FieldInventory.field_id == field.id,
+                    FieldInventory.product_id == order.product_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if stock is None:
+            stock = FieldInventory(
+                field_id=field.id, product_id=order.product_id, quantity=0
+            )
+            session.add(stock)
+        stock.quantity += order.quantity
+        product = await session.get(ProductCatalog, order.product_id)
+        events.append(
+            FieldEvent(
+                field_id=field.id,
+                event_type="product_delivered",
+                description=(
+                    f"Consegna ricevuta: {order.quantity}x "
+                    f"{product.name if product else 'prodotto'}"
+                ),
+                sim_time=new_sim,
+            )
+        )
+        delivered_orders.append(order)
+
     # celle con un task di cura ancora in corso (non subiscono decadimento)
     in_progress = (
         await session.execute(
@@ -263,14 +346,26 @@ async def run_field_tick(session: AsyncSession, field_id: uuid.UUID, delta_hours
         best_risk, best_disease = 0.0, None
         for disease in diseases:
             risk = _disease_risk(
-                cell, disease, humidity, avg_temp, disease.id in neighbor_diseases
+                cell, disease, humidity, avg_temp,
+                disease.id in neighbor_diseases, profile["risk_base"],
             )
             if risk > best_risk:
                 best_risk, best_disease = risk, disease
         cell.disease_risk_score = round(best_risk, 3)
 
         if cell.active_disease_id is None and cell.status not in ("under_treatment",):
-            if best_risk > RISK_ACTIVATION_THRESHOLD and best_disease is not None:
+            # le celle trattate hanno un periodo di grazia: recuperano e non
+            # vengono re-infettate finché non tornano "healthy"
+            if cell.status == "treated":
+                if (cell.x, cell.y) not in just_treated:
+                    cell.health_score = round(
+                        min(0.95, cell.health_score
+                            + RECOVERY_PER_H * profile["recovery_mult"] * delta_hours),
+                        3,
+                    )
+                    if cell.health_score >= 0.9:
+                        cell.status = "healthy"
+            elif best_risk > RISK_ACTIVATION_THRESHOLD and best_disease is not None:
                 cell.active_disease_id = best_disease.id
                 cell.status = "diseased"
                 events.append(
@@ -287,17 +382,12 @@ async def run_field_tick(session: AsyncSession, field_id: uuid.UUID, delta_hours
                 )
             elif cell.status in ("healthy", "at_risk"):
                 cell.status = "at_risk" if best_risk >= AT_RISK_THRESHOLD else "healthy"
-            elif cell.status == "treated" and (cell.x, cell.y) not in just_treated:
-                cell.health_score = round(
-                    min(0.95, cell.health_score + RECOVERY_PER_H * delta_hours), 3
-                )
-                if cell.health_score >= 0.9:
-                    cell.status = "healthy"
 
         # d. decadimento salute se malata e senza cura in corso
         if cell.active_disease_id is not None and (cell.x, cell.y) not in under_care:
             disease = disease_by_id.get(cell.active_disease_id)
-            decay = SPREAD_DECAY_PER_H.get(disease.spread_speed, 0.004) if disease else 0.004
+            base_decay = SPREAD_DECAY_PER_H.get(disease.spread_speed, 0.004) if disease else 0.004
+            decay = base_decay * profile["spread_mult"]
             before = cell.health_score
             cell.health_score = round(max(0.05, cell.health_score - decay * delta_hours), 3)
             if before >= 0.25 > cell.health_score:
@@ -332,6 +422,10 @@ async def run_field_tick(session: AsyncSession, field_id: uuid.UUID, delta_hours
         "delta_hours": delta_hours,
         "events": [queries.serialize_event(e) for e in events],
         "completed_tasks": [queries.serialize_task(t) for t in completed_tasks],
+        "delivered_orders": [
+            {"order_id": str(o.id), "product_id": str(o.product_id), "quantity": o.quantity}
+            for o in delivered_orders
+        ],
     }
 
 
@@ -346,6 +440,8 @@ async def advance_field_and_publish(field_id: str, hours: int) -> dict:
     fid = str(field.id)
     for task in result["completed_tasks"]:
         broker.publish(fid, "task_completed", {"task_id": task["id"], "x": task["x"], "y": task["y"]})
+    for order in result["delivered_orders"]:
+        broker.publish(fid, "product_delivered", order)
     broker.publish(
         fid,
         "time_advanced",

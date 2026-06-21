@@ -1,9 +1,12 @@
 """Query e serializzazione condivise tra endpoint REST e tool MCP."""
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+import config
 
 from models import (
     AgentTask,
@@ -12,6 +15,9 @@ from models import (
     Field,
     FieldCell,
     FieldEvent,
+    FieldInventory,
+    ProductCatalog,
+    ProductOrder,
     WeatherDaily,
 )
 
@@ -58,13 +64,30 @@ def serialize_field(field: Field) -> dict:
         "crop_type": field.crop_type,
         "sim_time": iso(field.simulation_time),
         "focus": {"x": field.focus_x, "y": field.focus_y},
+        "difficulty": field.difficulty,
+        "time_speed": field.time_speed,
     }
 
 
-def serialize_cell(cell: FieldCell, disease_names: dict | None = None) -> dict:
+def _photo_url(last_photo_path: str | None) -> str | None:
+    """URL pronto della foto della cella: le foto caricate hanno già un path
+    assoluto (/uploads/...), quelle del dataset sono relative a /images."""
+    if not last_photo_path:
+        return None
+    return last_photo_path if last_photo_path.startswith("/") else f"/images/{last_photo_path}"
+
+
+def serialize_cell(
+    cell: FieldCell,
+    disease_names: dict | None = None,
+    disease_images: dict | None = None,
+) -> dict:
     disease_name = None
     if cell.active_disease_id is not None and disease_names:
         disease_name = disease_names.get(cell.active_disease_id)
+    disease_image_url = None
+    if cell.active_disease_id is not None and disease_images:
+        disease_image_url = disease_images.get(cell.active_disease_id)
     return {
         "x": cell.x,
         "y": cell.y,
@@ -77,6 +100,10 @@ def serialize_cell(cell: FieldCell, disease_names: dict | None = None) -> dict:
         "active_disease": disease_name,
         "last_inspected_at": iso(cell.last_inspected_at),
         "last_photo_path": cell.last_photo_path,
+        "last_photo_url": _photo_url(cell.last_photo_path),
+        # immagine di riferimento della malattia attiva (mostrata anche se la
+        # cella non è mai stata fotografata)
+        "disease_image_url": disease_image_url,
     }
 
 
@@ -152,6 +179,35 @@ async def disease_names_map(session: AsyncSession) -> dict:
     return {row.id: row.name for row in result}
 
 
+# cache cartella-malattia -> URL immagine rappresentativa (/images/diseased/...)
+_REP_IMAGE_CACHE: dict[str, str | None] = {}
+
+
+def _representative_image_url(image_folder: str) -> str | None:
+    if image_folder in _REP_IMAGE_CACHE:
+        return _REP_IMAGE_CACHE[image_folder]
+    folder = Path(config.IMAGE_BASE_PATH) / "diseased" / image_folder
+    rel = None
+    if folder.is_dir():
+        files = sorted(
+            p for p in folder.glob("*")
+            if p.suffix.lower() in (".jpg", ".jpeg", ".png")
+        )
+        if files:
+            rel = f"/images/diseased/{image_folder}/{files[0].name}"
+    _REP_IMAGE_CACHE[image_folder] = rel
+    return rel
+
+
+async def disease_image_map(session: AsyncSession) -> dict:
+    """id malattia -> URL di un'immagine rappresentativa (per mostrare la foto
+    della malattia anche su una cella mai fotografata)."""
+    result = await session.execute(
+        select(DiseaseCatalog.id, DiseaseCatalog.image_folder)
+    )
+    return {row.id: _representative_image_url(row.image_folder) for row in result}
+
+
 async def current_weather(session: AsyncSession, field: Field) -> dict | None:
     """Meteo effettivo più recente non oltre la data simulata corrente."""
     sim_date = field.simulation_time.date()
@@ -186,13 +242,14 @@ async def weather_forecast(session: AsyncSession, field: Field, days: int = 7) -
 
 async def field_state(session: AsyncSession, field: Field) -> dict:
     names = await disease_names_map(session)
+    images = await disease_image_map(session)
 
     cells_result = await session.execute(
         select(FieldCell)
         .where(FieldCell.field_id == field.id)
         .order_by(FieldCell.y, FieldCell.x)
     )
-    cells = [serialize_cell(c, names) for c in cells_result.scalars()]
+    cells = [serialize_cell(c, names, images) for c in cells_result.scalars()]
 
     tasks_result = await session.execute(
         select(AgentTask).where(
@@ -217,6 +274,64 @@ async def field_state(session: AsyncSession, field: Field) -> dict:
         },
         "active_tasks": tasks,
         "open_checkpoints": checkpoints,
+    }
+
+
+async def field_summary(session: AsyncSession, field: Field, top_n: int = 8) -> dict:
+    """Riassunto compatto del campo per l'agente LLM: conteggi per stato, meteo
+    corrente, task attivi e le celle più critiche (malate / a rischio) con le
+    coordinate. Evita di riversare tutte le 100 celle nel contesto del modello;
+    per il dettaglio di una cella si usa get_cell_detail."""
+    names = await disease_names_map(session)
+    cells = list(
+        (
+            await session.execute(
+                select(FieldCell).where(FieldCell.field_id == field.id)
+            )
+        ).scalars()
+    )
+    status_counts: dict[str, int] = {}
+    for c in cells:
+        status_counts[c.status] = status_counts.get(c.status, 0) + 1
+
+    # celle critiche: prima le malate (salute crescente), poi le a rischio
+    diseased = sorted(
+        (c for c in cells if c.status in ("diseased", "under_treatment")),
+        key=lambda c: c.health_score,
+    )
+    at_risk = sorted(
+        (c for c in cells if c.status == "at_risk"),
+        key=lambda c: -c.disease_risk_score,
+    )
+    critical = [
+        {
+            "x": c.x, "y": c.y, "status": c.status,
+            "health_score": round(c.health_score, 3),
+            "disease_risk_score": round(c.disease_risk_score, 3),
+            "active_disease": names.get(c.active_disease_id) if c.active_disease_id else None,
+        }
+        for c in (diseased + at_risk)[:top_n]
+    ]
+
+    tasks = list(
+        (
+            await session.execute(
+                select(AgentTask).where(
+                    AgentTask.field_id == field.id, AgentTask.status == "in_progress"
+                )
+            )
+        ).scalars()
+    )
+
+    return {
+        "field": serialize_field(field),
+        "sim_time": iso(field.simulation_time),
+        "grid": {"rows": field.rows, "cols": field.cols, "total_cells": len(cells)},
+        "status_counts": status_counts,
+        "critical_cells": critical,
+        "active_tasks": [serialize_task(t) for t in tasks],
+        "weather_current": await current_weather(session, field),
+        "hint": "Usa get_cell_detail(x,y) per il dettaglio di una cella specifica.",
     }
 
 
@@ -261,13 +376,83 @@ async def cell_detail(session: AsyncSession, field: Field, x: int, y: int) -> di
     checkpoints = [serialize_checkpoint(c) for c in cp_result.scalars()]
 
     names = await disease_names_map(session)
+    images = await disease_image_map(session)
     return {
-        "cell": serialize_cell(cell, names),
+        "cell": serialize_cell(cell, names, images),
         "active_disease": disease,
         "recent_events": events,
         "active_tasks": tasks,
         "open_checkpoints": checkpoints,
         "sim_time": iso(field.simulation_time),
+    }
+
+
+def serialize_product(p: ProductCatalog) -> dict:
+    return {
+        "id": str(p.id),
+        "name": p.name,
+        "product_type": p.product_type,
+        "targets": p.targets,
+        "delivery_min_h": p.delivery_min_h,
+        "delivery_max_h": p.delivery_max_h,
+        "efficacy": p.efficacy,
+        "description": p.description,
+    }
+
+
+async def get_product_or_error(session: AsyncSession, product_id: str) -> ProductCatalog:
+    try:
+        pid = uuid.UUID(product_id)
+    except (ValueError, AttributeError, TypeError):
+        raise ValueError(f"product_id non valido: {product_id!r}")
+    product = await session.get(ProductCatalog, pid)
+    if product is None:
+        raise ValueError(f"Prodotto {product_id} inesistente")
+    return product
+
+
+async def inventory_state(session: AsyncSession, field: Field) -> dict:
+    """Catalogo prodotti con stock attuale nel campo + ordini in transito (ETA)."""
+    products = list((await session.execute(select(ProductCatalog))).scalars())
+    stock_rows = (
+        await session.execute(
+            select(FieldInventory).where(FieldInventory.field_id == field.id)
+        )
+    ).scalars()
+    qty_by_product = {row.product_id: row.quantity for row in stock_rows}
+
+    orders = (
+        await session.execute(
+            select(ProductOrder).where(
+                ProductOrder.field_id == field.id,
+                ProductOrder.status == "in_transit",
+            )
+        )
+    ).scalars()
+    sim_time = field.simulation_time
+    pending = []
+    name_by_id = {p.id: p.name for p in products}
+    for o in orders:
+        eta_h = round((o.arrives_at_sim - sim_time).total_seconds() / 3600, 1)
+        pending.append({
+            "order_id": str(o.id),
+            "product_id": str(o.product_id),
+            "product_name": name_by_id.get(o.product_id, "?"),
+            "quantity": o.quantity,
+            "arrives_at_sim": iso(o.arrives_at_sim),
+            "eta_hours": max(0.0, eta_h),
+        })
+
+    catalog = []
+    for p in products:
+        item = serialize_product(p)
+        item["in_stock"] = qty_by_product.get(p.id, 0)
+        catalog.append(item)
+
+    return {
+        "sim_time": iso(sim_time),
+        "products": catalog,
+        "pending_orders": pending,
     }
 
 

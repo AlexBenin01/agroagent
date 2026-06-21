@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -21,15 +21,19 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
       FRONTEND_ORIGIN: http://localhost:3000
-      FIELD_TICK_INTERVAL_MINUTES: ${FIELD_TICK_INTERVAL_MINUTES}
+      SIM_DAY_REAL_MINUTES: ${SIM_DAY_REAL_MINUTES}
+      SIM_HOURS_PER_TICK: ${SIM_HOURS_PER_TICK}
       DEFAULT_FIELD_ROWS: ${DEFAULT_FIELD_ROWS}
       DEFAULT_FIELD_COLS: ${DEFAULT_FIELD_COLS}
       IMAGE_BASE_PATH: ${IMAGE_BASE_PATH}
+      UPLOAD_BASE_PATH: /app/uploads
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./data:/app/data:ro
+      # foto caricate dal contadino: bind su host, preservate anche con `down -v`
+      - ./uploads:/app/uploads
 
   agent_service:
     build: ./agent_service
@@ -43,6 +47,11 @@ services:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
       FRONTEND_ORIGIN: http://localhost:3000
+      CONTEXT_MAX_TOKENS: ${CONTEXT_MAX_TOKENS}
+      EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL}
+      EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL}
+      EMBEDDINGS_DIMS: ${EMBEDDINGS_DIMS}
     depends_on:
       postgres:
         condition: service_healthy

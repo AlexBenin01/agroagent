@@ -7,6 +7,9 @@ from models.models import (
     Field,
     FieldCell,
     FieldEvent,
+    FieldInventory,
+    ProductCatalog,
+    ProductOrder,
     WeatherDaily,
 )
 
@@ -20,4 +23,7 @@ __all__ = [
     "AgentTask",
     "FieldEvent",
     "ChatSession",
+    "ProductCatalog",
+    "FieldInventory",
+    "ProductOrder",
 ]

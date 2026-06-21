@@ -49,9 +49,16 @@ function render() {
     html += `<div class="cp-row">📍 <em>${c.type}</em>: ${c.note || ""}</div>`;
   }
 
-  if (cell.last_photo_path) {
-    html += `<img class="sensor-photo" src="${MCP_BASE}/images/${cell.last_photo_path}"
-             alt="ultima foto cella (${cell.x},${cell.y})">`;
+  // Priorità: foto reale (caricata o scatto drone) → altrimenti immagine di
+  // riferimento della malattia attiva, così la malattia si vede sempre.
+  if (cell.last_photo_url) {
+    html += `<img class="sensor-photo" src="${MCP_BASE}${cell.last_photo_url}"
+             alt="foto cella (${cell.x},${cell.y})">
+             <div class="muted photo-caption">Ultima foto della cella</div>`;
+  } else if (cell.disease_image_url) {
+    html += `<img class="sensor-photo" src="${MCP_BASE}${cell.disease_image_url}"
+             alt="riferimento ${cell.active_disease}">
+             <div class="muted photo-caption">Immagine di riferimento — ${cell.active_disease}</div>`;
   }
 
   body.innerHTML = html;

@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from db.session import SessionLocal
 from field_factory import create_field
-from models import DiseaseCatalog, Field
+from models import DiseaseCatalog, Field, ProductCatalog
 
 SEED_DATA_DIR = Path(__file__).parent / "seed_data"
 
@@ -29,6 +29,19 @@ async def seed_diseases(session) -> int:
     return inserted
 
 
+async def seed_products(session) -> int:
+    products = json.loads((SEED_DATA_DIR / "products.json").read_text(encoding="utf-8"))
+    inserted = 0
+    for entry in products:
+        result = await session.execute(
+            select(ProductCatalog).where(ProductCatalog.name == entry["name"])
+        )
+        if result.scalar_one_or_none() is None:
+            session.add(ProductCatalog(**entry))
+            inserted += 1
+    return inserted
+
+
 async def seed_default_field(session) -> bool:
     result = await session.execute(select(Field).limit(1))
     if result.scalar_one_or_none() is not None:
@@ -40,10 +53,14 @@ async def seed_default_field(session) -> bool:
 async def main() -> None:
     async with SessionLocal() as session:
         inserted = await seed_diseases(session)
+        products = await seed_products(session)
         await session.flush()
         created = await seed_default_field(session)
         await session.commit()
-    print(f"[seed] malattie inserite: {inserted}; campo demo creato: {created}")
+    print(
+        f"[seed] malattie inserite: {inserted}; prodotti inseriti: {products}; "
+        f"campo demo creato: {created}"
+    )
 
 
 if __name__ == "__main__":

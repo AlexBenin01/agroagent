@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Fungicida rameico",
+    "product_type": "chemical",
+    "targets": ["fungus", "oomycete"],
+    "delivery_min_h": 12,
+    "delivery_max_h": 36,
+    "efficacy": 0.75,
+    "description": "Fungicida di copertura a base di rame, ampio spettro, consegna rapida."
+  },
+  {
+    "name": "Fungicida sistemico (IBE)",
+    "product_type": "chemical",
+    "targets": ["fungus"],
+    "delivery_min_h": 24,
+    "delivery_max_h": 72,
+    "efficacy": 0.92,
+    "description": "Inibitore della biosintesi degli steroli, alta efficacia su funghi, consegna media."
+  },
+  {
+    "name": "Bacillus subtilis (biologico)",
+    "product_type": "biological",
+    "targets": ["fungus"],
+    "delivery_min_h": 36,
+    "delivery_max_h": 96,
+    "efficacy": 0.68,
+    "description": "Antagonista microbico per difesa biologica, consegna lenta ma sostenibile."
+  },
+  {
+    "name": "Trattamento ad ampio spettro",
+    "product_type": "chemical",
+    "targets": ["any"],
+    "delivery_min_h": 48,
+    "delivery_max_h": 120,
+    "efficacy": 0.85,
+    "description": "Formulato versatile efficace su patogeni diversi; logistica più complessa."
+  }
+]

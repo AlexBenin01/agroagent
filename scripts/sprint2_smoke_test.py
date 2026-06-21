@@ -36,10 +36,10 @@ async def main() -> None:
             tools = await session.list_tools()
             names = sorted(t.name for t in tools.tools)
             print(f"[ok] {len(names)} tool: {names}")
-            assert len(names) == 10, "attesi 10 tool MCP"
+            assert len(names) == 13, "attesi 13 tool MCP"
 
             state = parse(await session.call_tool("get_field_state", {"field_id": field_id}))
-            diseased = [c for c in state["cells"] if c["status"] == "diseased"]
+            diseased = [c for c in state["critical_cells"] if c["status"] == "diseased"]
             assert diseased, "attesa almeno una cella malata nel campo demo"
             cx, cy = diseased[0]["x"], diseased[0]["y"]
             print(f"[ok] cella malata ({cx},{cy}): {diseased[0]['active_disease']}")
@@ -57,17 +57,42 @@ async def main() -> None:
             cp = parse(await session.call_tool("create_checkpoint", {
                 "field_id": field_id, "x": cx, "y": cy,
                 "checkpoint_type": "disease_found",
-                "note": "Sintomi di peronospora confermati da foto"}))
+                "note": "Sintomi di Marciume nero confermati da foto"}))
             print(f"[ok] create_checkpoint -> {cp['id'][:8]}…")
 
+            # senza prodotto a magazzino, il trattamento chimico va rifiutato
+            no_stock = await session.call_tool("start_treatment", {
+                "field_id": field_id, "x": cx, "y": cy, "treatment_type": "chemical"})
+            assert no_stock.isError, "atteso rifiuto: trattamento chimico senza prodotto"
+            print("[ok] trattamento chimico senza prodotto rifiutato")
+
+            # inventario: ordina un prodotto adatto e attendi la consegna
+            inv = parse(await session.call_tool("query_inventory", {"field_id": field_id}))
+            product = next(
+                p for p in inv["products"]
+                if "fungus" in p["targets"] or "any" in p["targets"]
+            )
+            order = parse(await session.call_tool("order_product", {
+                "field_id": field_id, "product_id": product["id"], "quantity": 1}))
+            print(f"[ok] order_product -> {product['name']}, consegna ~{order['delivery_hours']}h")
+
+            await session.call_tool("advance_simulation_time", {
+                "field_id": field_id, "hours": order["delivery_hours"]})
+            inv2 = parse(await session.call_tool("query_inventory", {"field_id": field_id}))
+            stock = next(p["in_stock"] for p in inv2["products"] if p["id"] == product["id"])
+            assert stock >= 1, "il prodotto ordinato doveva essere consegnato"
+            print(f"[ok] consegna ricevuta -> stock {product['name']}={stock}")
+
             task = parse(await session.call_tool("start_treatment", {
-                "field_id": field_id, "x": cx, "y": cy, "treatment_type": "chemical"}))
+                "field_id": field_id, "x": cx, "y": cy,
+                "treatment_type": "chemical", "product_id": product["id"]}))
             print(f"[ok] start_treatment -> task {task['id'][:8]}…, "
                   f"fine prevista {task['ends_at_sim']}")
 
             # doppio trattamento sulla stessa cella -> rifiutato
             dup = await session.call_tool("start_treatment", {
-                "field_id": field_id, "x": cx, "y": cy, "treatment_type": "chemical"})
+                "field_id": field_id, "x": cx, "y": cy,
+                "treatment_type": "chemical", "product_id": product["id"]})
             assert dup.isError, "atteso rifiuto del secondo task sulla stessa cella"
             print("[ok] doppio task sulla stessa cella rifiutato")
 
@@ -98,9 +123,9 @@ async def main() -> None:
 
             catalog = parse(await session.call_tool("query_disease_catalog", {
                 "crop_type": "vite",
-                "symptoms": ["macchie oleose foglia"],
+                "symptoms": ["macchie circolari brune sulle foglie"],
                 "weather_conditions": {"temp": 22, "humidity_pct": 85}}))["matches"]
-            assert catalog[0]["name"].startswith("Peronospora"), catalog[0]["name"]
+            assert catalog[0]["name"].startswith("Marciume nero"), catalog[0]["name"]
             print(f"[ok] query_disease_catalog -> top: {catalog[0]['name']} "
                   f"(score {catalog[0]['match_score']})")
 

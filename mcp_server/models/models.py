@@ -31,6 +31,10 @@ class Field(Base):
     # Posizione corrente del riquadro di supervisione dell'agente
     focus_x: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     focus_y: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Modalità di gioco: "normal" | "hard" | "apocalypse"
+    difficulty: Mapped[str] = mapped_column(Text, nullable=False, default="normal")
+    # Velocità di avanzamento real-time del tempo simulato: 0 = pausa, 1..4 = ore/tick
+    time_speed: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     cells: Mapped[list["FieldCell"]] = relationship(back_populates="field")
 
@@ -98,7 +102,9 @@ class DiseaseCatalog(Base):
 
 
 class Checkpoint(Base):
-    __tablename__ = "checkpoints"
+    # "field_checkpoints" per non collidere con la tabella "checkpoints" del
+    # checkpointer LangGraph (memoria di thread), nello stesso database
+    __tablename__ = "field_checkpoints"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fields.id"), nullable=False)
@@ -137,6 +143,55 @@ class FieldEvent(Base):
     cell_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     sim_time: Mapped[datetime] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class ProductCatalog(Base):
+    """Catalogo dei prodotti curativi ordinabili dall'agente."""
+
+    __tablename__ = "product_catalog"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    product_type: Mapped[str] = mapped_column(Text, nullable=False)  # chemical | biological
+    # pathogen_type bersaglio (es. "fungus", "oomycete", "phytoplasma") o "any"
+    targets: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    delivery_min_h: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    delivery_max_h: Mapped[int] = mapped_column(Integer, nullable=False, default=72)
+    efficacy: Mapped[float] = mapped_column(Float, nullable=False, default=0.8)  # 0..1
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class FieldInventory(Base):
+    """Stock di un prodotto disponibile in un campo."""
+
+    __tablename__ = "field_inventory"
+    __table_args__ = (
+        UniqueConstraint("field_id", "product_id", name="uq_inventory_field_product"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fields.id"), nullable=False)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product_catalog.id"), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ProductOrder(Base):
+    """Ordine di un prodotto in consegna, con tempo di arrivo in ore simulate."""
+
+    __tablename__ = "product_orders"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fields.id"), nullable=False)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product_catalog.id"), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="in_transit")
+    ordered_at_sim: Mapped[datetime] = mapped_column(nullable=False)
+    arrives_at_sim: Mapped[datetime] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 

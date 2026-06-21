@@ -5,6 +5,7 @@ import { state, mergeCells, notify } from "./state.js";
 
 let refetchFullState = null;
 let onTimelineDirty = null;
+let onInventoryDirty = null;
 
 function setStatus(connected) {
   const dot = document.getElementById("sse-status");
@@ -12,9 +13,10 @@ function setStatus(connected) {
   dot.classList.toggle("off", !connected);
 }
 
-export function initSSE(fieldId, { refetch, timelineDirty }) {
+export function initSSE(fieldId, { refetch, timelineDirty, inventoryDirty }) {
   refetchFullState = refetch;
   onTimelineDirty = timelineDirty;
+  onInventoryDirty = inventoryDirty || (() => {});
 
   const source = new EventSource(`${MCP_BASE}/events/${fieldId}`);
 
@@ -22,6 +24,7 @@ export function initSSE(fieldId, { refetch, timelineDirty }) {
     setStatus(true);
     refetchFullState();
     onTimelineDirty();
+    onInventoryDirty();
   };
   source.onerror = () => setStatus(false); // EventSource riconnette da solo
 
@@ -60,5 +63,24 @@ export function initSSE(fieldId, { refetch, timelineDirty }) {
     if (state.field) state.field.sim_time = data.new_sim_time;
     refetchFullState(); // meteo/task/checkpoint possono essere cambiati
     onTimelineDirty();
+    onInventoryDirty(); // le consegne maturano avanzando il tempo
+  });
+
+  source.addEventListener("product_ordered", () => {
+    onInventoryDirty();
+    onTimelineDirty();
+  });
+
+  source.addEventListener("product_delivered", () => {
+    onInventoryDirty();
+    onTimelineDirty();
+  });
+
+  source.addEventListener("speed_changed", (evt) => {
+    const data = JSON.parse(evt.data);
+    if (state.field) {
+      state.field.time_speed = data.time_speed;
+      notify();
+    }
   });
 }

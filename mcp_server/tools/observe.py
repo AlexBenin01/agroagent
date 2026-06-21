@@ -12,12 +12,13 @@ from sse import broker
 
 @mcp.tool()
 async def get_field_state(field_id: str) -> dict:
-    """Restituisce lo stato completo del campo: griglia celle (sensori, salute,
-    rischio malattia, stato), meteo corrente con previsione 7 giorni, task
-    attivi e checkpoint aperti."""
+    """Restituisce un RIASSUNTO compatto dello stato del campo: conteggi delle
+    celle per stato, meteo corrente, task attivi e l'elenco delle celle più
+    critiche (malate / a rischio) con le coordinate. Per il dettaglio di una
+    singola cella usa get_cell_detail(x, y)."""
     async with SessionLocal() as session:
         field = await queries.get_field_or_error(session, field_id)
-        return await queries.field_state(session, field)
+        return await queries.field_summary(session, field)
 
 
 @mcp.tool()

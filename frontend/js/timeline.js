@@ -11,6 +11,9 @@ const ICONS = {
   inspection: "🔍",
   time_advance: "⏭️",
   field_created: "🌿",
+  product_ordered: "🛒",
+  product_delivered: "🚚",
+  photo_uploaded: "📷",
 };
 
 let fieldId = null;
