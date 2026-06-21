@@ -15,7 +15,7 @@ language what is happening and why.
 - 💾 **Persistent memory** — LangGraph Postgres **checkpointer + store** (optional pgvector semantic search) with automatic context summarization to tame the context window.
 - 🕒 **Real-time simulation** — disease spreads by weather & contagion; **1 simulated day = 5 real minutes**, with ×1–×4 speed and Normal/Hard/Apocalypse modes.
 - 📊 **LLM observability** — token-by-token streaming with a live panel: time-to-first-token, time-to-first-tool, tokens/s.
-- 🔌 **Model-agnostic** — any OpenAI-compatible endpoint (Qwen3 on vLLM, Ollama, or a cloud provider).
+- 🔌 **Model-agnostic** — any OpenAI-compatible endpoint (Qwen3 on llama.cpp, vLLM, Ollama, or a cloud provider).
 
 ---
 
@@ -33,7 +33,7 @@ Browser (Canvas + Chat) ◀──SSE── MCP Server (FastAPI + FastMCP) ──
                             Agent Service (LangGraph ReAct)
                                         │
                                         ▼ OpenAI-compatible API
-                            LLM endpoint (Qwen3 on vLLM / Ollama / any /v1)
+                            LLM endpoint (Qwen3 on llama.cpp / vLLM / Ollama / any /v1)
 ```
 
 ### Key design decisions
@@ -46,8 +46,9 @@ Browser (Canvas + Chat) ◀──SSE── MCP Server (FastAPI + FastMCP) ──
   bearer-token authentication between services. No hand-rolled JSON-RPC.
 - **LLM-agnostic by construction.** The agent talks to any OpenAI-compatible
   endpoint via three environment variables (`OPENAI_BASE_URL`, `OPENAI_API_KEY`,
-  `LLM_MODEL`). Reference setup: Qwen3 served by vLLM on a Colab A100, exposed
-  through an HTTPS tunnel. Ollama or any cloud provider works the same way.
+  `LLM_MODEL`). Reference setup: Qwen3.6-35B-A3B (GGUF) served by **llama.cpp** on
+  a Colab A100, exposed through an HTTPS tunnel. vLLM, Ollama or any cloud provider
+  works the same way.
 - **Security baseline from day one.** No hardcoded credentials, Postgres not
   exposed on the host, explicit CORS allowlist, server-side validation of every
   tool parameter, capped agent loop, static files served safely.
@@ -83,15 +84,16 @@ Any OpenAI-compatible endpoint with **tool calling** works. In `.env`:
 
 | Setup | `OPENAI_BASE_URL` | `LLM_MODEL` |
 |---|---|---|
-| vLLM on Colab (reference) | `https://<tunnel>.trycloudflare.com/v1` | `Qwen/Qwen3-32B` |
-| llama.cpp on Colab (Qwen3.6, 40 GB A100) | `https://<tunnel>.trycloudflare.com/v1` | `qwen3.6-35b-a3b` |
+| llama.cpp on Colab (reference) | `https://<tunnel>.trycloudflare.com/v1` | `qwen3.6-35b-a3b` |
+| vLLM on Colab | `https://<tunnel>.trycloudflare.com/v1` | `Qwen/Qwen3-32B` |
 | Ollama on the host | `http://host.docker.internal:11434/v1` | e.g. `qwen3:8b` |
 | Cloud provider | provider `/v1` URL | provider model id |
 
-vLLM needs tool calling enabled (`--enable-auto-tool-choice --tool-call-parser hermes`),
-and a **multimodal** model (e.g. a Qwen-VL variant) for the photo-diagnosis flow.
-For serving Qwen3.6-35B-A3B (GGUF) on a 40 GB A100 via llama.cpp, open the
-ready-to-run notebook [colab/agroagent_llm.ipynb](colab/agroagent_llm.ipynb).
+The reference setup serves **Qwen3.6-35B-A3B (GGUF) via llama.cpp** (`llama-server`)
+on a 40 GB A100 — open the ready-to-run notebook
+[colab/agroagent_llm.ipynb](colab/agroagent_llm.ipynb). A **multimodal** model is
+needed for the photo-diagnosis flow. With vLLM instead, enable tool calling
+(`--enable-auto-tool-choice --tool-call-parser hermes`); the agent is endpoint-agnostic.
 After changing `.env`, restart just the agent: `docker compose up -d agent_service`.
 On Qwen3 the agent disables the hidden `<think>` reasoning (`LLM_ENABLE_THINKING=false`)
 for much lower latency.
@@ -209,7 +211,7 @@ multimodal LLM endpoint that supports the OpenAI `image_url` format.
 **Backend:** Python, FastAPI, MCP Python SDK (FastMCP), LangGraph (+ langmem), SQLAlchemy + Alembic, PostgreSQL + pgvector
 **Frontend:** Vanilla JS (ES modules), Canvas 2D, Server-Sent Events
 **Infra:** Docker Compose (postgres, mcp_server, agent_service, frontend)
-**LLM:** any OpenAI-compatible endpoint — reference: multimodal Qwen3 on vLLM (Colab A100)
+**LLM:** any OpenAI-compatible endpoint — reference: multimodal Qwen3.6-35B-A3B (GGUF) on llama.cpp (Colab A100)
 
 ## Roadmap
 
